@@ -1,0 +1,180 @@
+################################# IPC Setup ####################################
+# Make unique log and fifo per terminal
+export TERMINAL_NO=$(tty | sed -e 's/.*\///');
+export FIFO_NAME="/tmp/melmer_terminal_${TERMINAL_NO}.fifo";
+export PROMPT_LOG="/tmp/melmer_terminal_${TERMINAL_NO}.log";
+
+function cleanup() {
+    rm  "${FIFO_NAME}";
+    rm  "${PROMPT_LOG}";
+}
+trap cleanup EXIT
+
+if [[ -f "${PROMPT_LOG}" ]]; then
+    rm "${PROMPT_LOG}";
+fi;
+touch "${PROMPT_LOG}";
+
+if [[ -p "${FIFO_NAME}" ]]; then
+    rm "${FIFO_NAME}";
+fi
+mkfifo "${FIFO_NAME}";
+################################# IPC Setup ####################################
+
+
+#################################### Common ####################################
+#### formatting identifiers
+# colors
+yellow="\e[33;1m";
+white="\e[37;1m";
+red="\e[31;1m";
+orange="\e[38;5;208m";
+cyan="\e[36;1m";
+blue="\e[34;1m";
+reset="\e[0m";
+# blink
+blink="\e[5m";
+noBlink="\e[25m";
+
+#### adds a newline after running commands, but not after clearing or ctrl-L'ing
+function add_newline_after_commands() {  # (but not clear or ^L)
+    lastnum=$(history | wc -l);
+    lastone=$(history | grep $lastnum);
+    if [[ $lastone == *"clear"* ]]; then
+        return;
+    else
+        echo -en "\n" > /dev/tty;
+        return;
+    fi
+}
+
+function variable_set() {
+    if [[ -z ${var+x} ]]; then
+        return 0;
+    else
+        return 1;
+    fi;
+}
+
+#### resolves the current git branch for display in the prompt
+function git_branch() {
+    # Thanks to @mathiasbynens for the inspiration and starting point.
+    # https://github.com/mathiasbynens/dotfiles/blob/main/.bash_prompt
+    # It has been heavily modified, but you will recognize some bits.
+
+    # Check if the current directory is in a Git repository.
+    git rev-parse --is-inside-work-tree &>/dev/null || return;
+
+    local branchName;
+    local repoName;
+    local detachedHead;
+
+    # Get the cached remote repository name
+    repoName="$(git remote show origin -n 2> /dev/null | grep 'Fetch URL' | \
+    sed -e 's/Fetch URL: //' -e 's/.*://' -e 's/.*\///' -e 's/\..*//' || \
+    basename $(git rev-parse --show-toplevel) 2> /dev/null || \
+    echo '???')";
+
+    # Check which branch we’re on.
+    # Get the short symbolic ref. If HEAD isn’t a symbolic ref,
+    # note that it is a detached head and attempt to get a
+    # tracking remote branch or tag. Otherwise, get the
+    # short SHA for the latest commit, else give up.
+    branchName=$(git symbolic-ref --quiet --short HEAD);
+    if [[ $? -eq 0 ]]; then
+        detachedHead='';
+        detachedHeadPlain='';
+    else
+        detachedHead=" ${blink}${cyan}DETACHED HEAD!${noBlink}${reset}";
+        detachedHeadPlain='_DETACHED HEAD!'
+        branchName="$(git describe --all --exact-match HEAD 2> /dev/null || \
+        git rev-parse --short HEAD 2> /dev/null || \
+        echo '???')";
+    fi;
+
+    # Obtain the length of the branch name and send it to the prompt function
+    # via a named fifo to make sure the prompt arrow doesn't break
+    branchNamePlain="(${repoName}:${branchName})${detachedHeadPlain}_";
+    # if [[ variable_set $2 ]]; then
+    #     echo "${branchNamePlain}";
+    # fi;
+
+    # Warn user if on master or main
+    # TODO: could be multilined for better compactness
+    if [[ "${branchName}" == *"master"* || "${branchName}" == *"main"* ]]; then
+        echo -e "${1}(${repoName}:${blink}${branchName}${noBlink})${reset}${detachedHead} ";
+    else
+        echo -e "${1}(${repoName}:${branchName})${reset}${detachedHead} ";
+    fi
+
+    sendit.bash "${branchNamePlain}" "${FIFO_NAME}" 1>&- 2>&- &
+
+    # query remote repo for updated repository name in the rare case that it
+    # changes (is it even possible??)
+    # OPTIMIZEME: This is updated in the background every time the prompt shows,
+    # but it would be better to only check upon entering the repository. Perhaps
+    # I could keep a boolean tracking whether I'm in a git branch or not and
+    # monitor when it changes from false to true
+    nohup git remote update 1>>"${PROMPT_LOG}" 2>&1 & disown;
+}
+
+function print_cur_dir() {
+    local output;
+    local git_branch_plain;
+    local hostname_result;
+    local additional_chars;
+    local charsthusfar;
+    local remaining_firstline;
+    local num_cols=$(tput cols);
+    local i=0;
+
+    # do what \w does
+    if [[ ${#PWD} -lt ${#HOME} ]]; then
+        output="${PWD}";
+    elif [[ ${PWD} == ${HOME} ]]; then
+        output='~';
+    elif [[ ${PWD:0:${#HOME}} != ${HOME} ]]; then
+        output="${PWD}";
+    else
+        output="~${PWD:${#HOME}}";
+    fi
+    output_len=${#output};
+
+    git rev-parse --is-inside-work-tree &>/dev/null && git_branch_plain=$(receiveit.bash "${FIFO_NAME}");
+    hostname_result=$(hostname -s);
+    additional_chars='┌@: '
+    charsthusfar=$(( ${#git_branch_plain} + ${#USER} + ${#hostname_result} + ${#additional_chars} ));
+    # ...and subtract from the number of columns in the terminal
+    # to obtain how many characters you have left on the current line
+    remaining_firstline=$(( num_cols - charsthusfar ));
+
+    # if the current path wont fit on the rest of the line, don't let it break the prompt arrow
+    if [[ ${output_len} -gt ${remaining_firstline} ]]; then
+        output="${output:0:${remaining_firstline}}${reset}│ ${1}${output:${remaining_firstline}:$(( ${output_len} - ${remaining_firstline} ))}";
+    fi
+    remaining_output=$(( ${output_len} - ${remaining_firstline} ));
+    while [[ ${remaining_output} -gt $(( ${num_cols} - 2 )) ]]; do
+        (( i += 1 ));
+        where_to_split=$(( ${remaining_firstline} + i * num_cols + i * 16 ));  # why is this +16 needed???
+        output="${output:0:${where_to_split}}${reset}│ ${1}${output:${where_to_split}}";
+        (( remaining_output -= num_cols + 2 ));
+    done
+
+    echo -en ${1}${output};
+}
+
+#### Custom bash prompt
+PS1="\$(add_newline_after_commands)";
+PS1+="\[${white}\]\[\e(0\]l\[\e(B\]\[${reset}\]\$(git_branch \"\[${yellow}\]\")"; # git branch
+PS1+="\[${red}\]\u"; # username
+PS1+="\[${reset}\]@";
+PS1+="\[${white}\]\h"; # machine
+PS1+="\[${reset}\]: ";
+PS1+="\[\$(print_cur_dir '${orange}')\]\n"; # directory path
+PS1+="\[${white}\]\[\e(0\]m\[\e(B\]►\[${reset}\] "; # prompt and reset color
+
+PS2=" ⟶ "
+
+#### Let em know you did it to em
+printf "\033[38;5;82;1mExecuted .fancy\033[0m\n"
+#################################### Common ####################################

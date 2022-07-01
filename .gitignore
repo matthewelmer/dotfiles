@@ -1,0 +1,11 @@
+*
+
+!.bash_logout
+!.bash_profile
+!.bashrc
+!bin
+!bin/*
+!.fancy
+!.fancyrc
+!.gitignore
+!.unused_bash_functions.bash
