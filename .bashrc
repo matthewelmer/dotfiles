@@ -10,7 +10,6 @@ fi
 PATH="/users/melmer/git_redirect:$PATH";
 export PATH
 
-# export JEOD_HOME=/users/melmer/RCS_HOME/jeod;  # bruh idk
 ############################### System-Specific ################################
 
 PS1="[\u@\h]: \w\n-> ";
