@@ -1,8 +1,0 @@
-#!/bin/bash
-
-if [[ -z "$ORIG" ]]; then
-    ORIG=$PS1
-    export ORIG;
-fi
-TITLE="\[\e]2;$*\a\]"
-PS1=${ORIG}${TITLE}
