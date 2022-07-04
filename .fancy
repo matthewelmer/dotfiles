@@ -1,3 +1,4 @@
+#!/bin/bash
 ################################# IPC Setup ####################################
 # Make unique log and fifo per terminal
 export TERMINAL_NO=$(tty | sed -e 's/.*\///');
