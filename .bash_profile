@@ -5,7 +5,6 @@
 if [ -f ~/.bashrc ]; then
  . ~/.bashrc;
 fi
-. env/nexsys_env_bashrc;
 ############################### System-Specific ################################
 
  
@@ -18,13 +17,6 @@ export PATH=${PATH}:${TRICK_HOME}/bin;
 export TRICK_CFLAGS="-g -Wall -Wmissing-prototypes -Wextra -Wshadow";
 export TRICK_CXXFLAGS="-g -Wall -Wextra -Wshadow";
 export PYTHON_VERSION=3;
-
-# Koviz stuff
-export PATH=${PATH}:${HOME}/koviz/bin;
-
-# Edge stuff
-export EDGE_HOME='~/EDGE_v2.4.1';
-export DOUG_HOME=${EDGE_HOME};
  
 #### greet the user with a fancy terminal
 gnome-terminal -- bash --rcfile ~/.fancyrc;
